@@ -73,12 +73,12 @@ void select_phys_device() {
 		}
 	}
 
-	int selected_device_id = 1;
+	int selected_device_id = 1; // hardcoded
 	
 	phys_device = devices[selected_device_id];
 	printf("selected device: %d\n", selected_device_id + 1);
 
-	queue_family_id = 0;
+	queue_family_id = 0; // hardcoded
 }
 
 void create_device() {

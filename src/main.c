@@ -134,8 +134,8 @@ void create_buffers() {
 	printf("%lu %lu %d\n", req.size, req.alignment, req.memoryTypeBits);
 
 
-	int mem_type_id = 1;
-	int mem_head_id = 0;
+	int mem_type_id = 1; // hardcoded
+	int mem_head_id = 0; // hardcoded
 
 
 	VkMemoryAllocateInfo buffer_alloc_info = {
