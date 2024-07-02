@@ -17,8 +17,8 @@ GLSL_CC_FLAGS=
 
 
 ifeq ($(DEBUG),1)
-	CC_FLAGS+=-g
-	LD_FLAGS+=-g
+	CC_FLAGS+=-g3
+	LD_FLAGS+=-g3
 else
 	CC_FLAGS+=-DNDEBUG
 endif
@@ -27,14 +27,16 @@ endif
 SOURCES = $(wildcard src/*.c)
 OBJECTS = $(SOURCES:src/%.c=build/%.o)
 
-SHADER_SOURCES = $(wildcard src/*.comp)
-SHADERS = $(SHADER_SOURCES:src/%.comp=build/%.spv)
+SHADER_SOURCES = $(wildcard src/*.glsl src/*.comp src/*.vert src/*.frag)
+# SHADERS = $(SHADER_SOURCES:src/%.glsl=build/%.spv:src/%.frag=build/%.spv)
+# SHADERS = $(patsubst src/%.frag,build/%.spv,$(patsubst src/%.vert,build/%.spv,$(SHADER_SOURCES)))
+SHADERS = $(addsuffix .spv,$(SHADER_SOURCES:src/%=build/%))
 
 
 build/%.o: src/%.c
 	$(CC) $(CC_FLAGS) $< -o $@
 
-build/%.spv: src/%.comp
+build/%.spv: src/%
 	$(GLSL_CC) $(GLSL_CC_FLAGS) $< -o $@
 
 main: $(OBJECTS)
