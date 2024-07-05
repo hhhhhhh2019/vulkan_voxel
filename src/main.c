@@ -15,8 +15,8 @@
 #include <string.h>
 
 
-const int output_width  = 1280;
-const int output_height = 720;
+const int output_width  = 32 * 40; // 1280
+const int output_height = 32 * 23; // 736
 
 
 GLFWwindow* window;
@@ -170,7 +170,7 @@ int main() {
 		vkBeginCommandBuffer(command_buffer, &begin_info);
 		vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
 		vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_layout, 0, 1, &set, 0, NULL);
-		vkCmdDispatch(command_buffer, 1, 1, 1);
+		vkCmdDispatch(command_buffer, output_width / 32, output_height / 32, 1);
 		vkEndCommandBuffer(command_buffer);
 
 		/*printf("\n\n-----1-----\n\n\n");*/
@@ -224,10 +224,10 @@ void create_instance() {
 	unsigned int glfw_ext_count;
 	const char** glfw_ext = glfwGetRequiredInstanceExtensions(&glfw_ext_count);
 
-	unsigned int ext_count = glfw_ext_count + 1;
+	unsigned int ext_count = glfw_ext_count;
 	const char** ext = malloc(sizeof(char*) * ext_count);
 	memcpy(ext, glfw_ext, glfw_ext_count * sizeof(char*));
-	ext[ext_count - 1] = VK_EXT_DEBUG_REPORT_EXTENSION_NAME;
+	/*ext[ext_count - 1] = VK_EXT_DEBUG_REPORT_EXTENSION_NAME;*/
 
 
 	const char* lays[] = {
@@ -242,7 +242,7 @@ void create_instance() {
 		.pApplicationInfo = &app_info,
 		.enabledExtensionCount = ext_count,
 		.ppEnabledExtensionNames = ext,
-		.enabledLayerCount = 1,
+		.enabledLayerCount = 0,
 		.ppEnabledLayerNames = lays,
 	};
 
