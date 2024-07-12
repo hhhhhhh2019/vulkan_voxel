@@ -15,8 +15,8 @@
 #include <string.h>
 
 
-const int output_width  = 32 * 40; // 1280
-const int output_height = 32 * 23; // 736
+const int output_width  = 32 * 16 * 3; // 1280
+const int output_height = 32 * 9  * 3; // 736
 
 
 GLFWwindow* window;
@@ -52,6 +52,9 @@ VkImage output_image;
 VkSampler output_image_sampler;
 VkImageView output_image_view;
 VkDeviceMemory output_image_mem;
+
+VkBuffer camera_buffer;
+VkDeviceMemory camera_buffer_mem;
 
 VkPipelineLayout pipeline_layout;
 VkPipeline pipeline;
@@ -89,7 +92,7 @@ int main() {
 	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
-	window = glfwCreateWindow(output_width, output_height, "voxels", NULL, NULL);
+	window = glfwCreateWindow(output_width, output_height, "voxels", glfwGetPrimaryMonitor(), NULL);
 
 
 	create_instance();
@@ -414,7 +417,7 @@ void create_swapchain() {
 		.pQueueFamilyIndices = NULL,
 		.preTransform = 1,
 		.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-		.presentMode = VK_PRESENT_MODE_FIFO_KHR,
+		.presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR,
 		.clipped = VK_TRUE,
 		.oldSwapchain = VK_NULL_HANDLE,
 	};
@@ -488,22 +491,18 @@ void create_buffers() {
 	printf("\n");
 
 
-	VkMemoryRequirements req;
+	VkMemoryRequirements output_image_req;
 
-	vkGetImageMemoryRequirements(device, output_image, &req);
+	vkGetImageMemoryRequirements(device, output_image, &output_image_req);
 
-	printf("%lu %lu %d\n", req.size, req.alignment, req.memoryTypeBits);
-
-
-	int mem_type_id = 1;
-	int mem_head_id = 0;
+	printf("%lu %lu %d\n", output_image_req.size, output_image_req.alignment, output_image_req.memoryTypeBits);
 
 
 	VkMemoryAllocateInfo output_image_alloc_info = {
 		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
 		.pNext = NULL,
-		.allocationSize = req.size,
-		.memoryTypeIndex = mem_type_id,
+		.allocationSize = output_image_req.size,
+		.memoryTypeIndex = 1,
 	};
 
 	vk_assert(vkAllocateMemory, device, &output_image_alloc_info, NULL, &output_image_mem);
@@ -556,6 +555,39 @@ void create_buffers() {
 	};
 
 	vk_assert(vkCreateImageView, device, &output_image_view_create_info, NULL, &output_image_view);
+
+
+	VkBufferCreateInfo camera_buffer_create_info = {
+		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		.pNext = NULL,
+		.flags = 0,
+		.size = 3 * 4 + 3 * 4,
+		.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+		.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+		.queueFamilyIndexCount = 1,
+		.pQueueFamilyIndices = &queue_fam_ids.compute,
+	};
+
+	vk_assert(vkCreateBuffer, device, &camera_buffer_create_info, NULL, &camera_buffer);
+	
+
+	VkMemoryRequirements camera_buffer_req;
+
+	vkGetImageMemoryRequirements(device, output_image, &camera_buffer_req);
+
+	printf("%lu %lu %d\n", camera_buffer_req.size, camera_buffer_req.alignment, camera_buffer_req.memoryTypeBits);
+
+
+	VkMemoryAllocateInfo camera_buffer_alloc_info = {
+		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+		.pNext = NULL,
+		.allocationSize = camera_buffer_req.size,
+		.memoryTypeIndex = 1,
+	};
+
+	vk_assert(vkAllocateMemory, device, &camera_buffer_alloc_info, NULL, &camera_buffer_mem);
+
+	vkBindBufferMemory(device, camera_buffer, camera_buffer_mem, 0);
 }
 
 
@@ -567,6 +599,13 @@ void create_pipeline_layout() {
 			.descriptorCount = 1,
 			.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
 			.pImmutableSamplers = NULL,
+		},
+		(VkDescriptorSetLayoutBinding){
+			.binding = 1,
+			.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+			.descriptorCount = 1,
+			.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+			.pImmutableSamplers = NULL,
 		}
 	};
 
@@ -574,7 +613,7 @@ void create_pipeline_layout() {
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
 		.pNext = NULL,
 		.flags = 0,
-		.bindingCount = 1,
+		.bindingCount = sizeof(bindings) / sizeof(bindings[0]),
 		.pBindings = bindings,
 	};
 
@@ -681,6 +720,10 @@ void alloc_descr() {
 		.imageView = output_image_view,
 	};
 
+	VkDescriptorBufferInfo camera_buffer_info = {
+		.offset = 0,
+	};
+
 
 	VkWriteDescriptorSet desc_writes[] = {
 		(VkWriteDescriptorSet){
@@ -691,6 +734,16 @@ void alloc_descr() {
 			.dstSet = set,
 			.pImageInfo = &output_image_info,
 			.dstBinding = 0,
+			.dstArrayElement = 0,
+		},
+		(VkWriteDescriptorSet){
+			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			.pNext = NULL,
+			.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+			.descriptorCount = 1,
+			.dstSet = set,
+			.pBufferInfo = &camera_buffer_info,
+			.dstBinding = 1,
 			.dstArrayElement = 0,
 		},
 	};

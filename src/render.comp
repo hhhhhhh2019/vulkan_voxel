@@ -2,6 +2,13 @@
 
 layout (local_size_x = 32, local_size_y = 32) in;
 layout (binding = 0, rgba8) uniform writeonly image2D output_image;
+layout (binding = 1) uniform Camera_block {
+	vec3 camera_pos;
+};
+
+
+#define get_bit(number, bit) \
+	((number >> bit) & 1)
 
 
 uint model_level = 3;
@@ -25,16 +32,13 @@ vec4 materials[] = {
 
 
 int model_data[] = {
-	0x7,
+	7,
 	0,
 	0,
 	0,
 	0,
 	0,
-	0,
-	0,
-	0,
-	0,
+
 };
 
 
@@ -60,78 +64,202 @@ bool ray_box(vec3 ro, vec3 rd, float size, out float t) {
 }
 
 
-bool is_point_in_box(vec3 p, float size) {
+bool is_point_in_box(vec3 p, float size, vec3 rd) {
+	vec3 k = abs(sign(abs(p) - size));
+	p = p * k + (p + rd) * (1 - k);
 	//size *= 0.5;
 	return abs(p.x) <= size && abs(p.y) <= size && abs(p.z) <= size;
 }
 
 
-int id_from_poin(vec3 p) {
-	ivec3 sp = ivec3(sign(p) * 0.5 + 0.5);
-	return sp.x + sp.y * 2 + sp.z * 4;
+uint id_from_point(vec3 p, vec3 rd) {
+	vec3 sp = sign(p);
+	vec3 k = abs(sp);
+	sp = sp * k + sign(rd) * (1 - k);
+	k = abs(sp);
+	sp = sp * k + vec3(1) * (1 - k);
+	sp = sp / 2 + 0.5;
+	return uint(sp.x + sp.y * 2 + sp.z * 4);
+}
+
+
+vec3 ray_step(vec3 p, vec3 rd) {
+	vec3 f = fract(abs(p));
+	vec3 s = ceil(sign(p) * sign(f) * sign(rd) / 2 + 0.5);
+	vec3 l = f * (1 - s) + (1 - f) * s;
+	vec3 t = abs(l/rd);
+	return p + rd * min(min(t.x, t.y), t.z);
 }
 
 
 uint stack_id[512];
-vec3 stack_pos[512];
+vec3 stack_offset[512];
 uint stack_level[512];
 int stack_head = 0;
 
 
-void stack_push(uint id, uint level, vec3 pos) {
+void stack_push(uint id, vec3 offset, uint level) {
 	stack_id[stack_head] = id;
+	stack_offset[stack_head] = offset;
 	stack_level[stack_head] = level;
-	stack_pos[stack_head] = pos;
 	stack_head++;
 }
 
-void stack_pop(out uint id, out uint level, out vec3 pos) {
+void stack_pop(out uint id, out vec3 offset, out uint level) {
 	stack_head--;
 	id = stack_id[stack_head];
+	offset = stack_offset[stack_head];
 	level = stack_level[stack_head];
-	pos = stack_pos[stack_head];
 }
 
 
-bool march(vec3 ro, vec3 rd, out float out_t) {
-	stack_push(0, model_level, vec3(0));
+vec3 ray_cast(vec3 ro, vec3 rd, in out float t) {
+	if (!ray_box(ro, rd, pow(2, model_level)/2, t))
+		return vec3(0);
 
-	vec3 result = vec3(0);
+	vec3 p = ro + rd * t;
 
-	while (stack_head != 0) {
+	vec3 f = fract(abs(p));
+
+	//if (min(min(f.x, f.y), f.z) != 0) {
+	//	vec3 new_p = step(p, rd);
+	//	t += length(new_p - p);
+	//	p = new_p;
+	//}
+
+	stack_push(0, vec3(0), model_level);
+
+	while (stack_head > 0) {
 		uint id;
+		vec3 offset;
 		uint level;
-		vec3 pos;
-		stack_pop(id, level, pos);
+		stack_pop(id, offset, level);
 
-		float t;
-		float size = pow(2, level);
+		float size = pow(2, level) / 2;
 
-		if (!ray_box(ro - pos, rd, size, t))
+		if (!is_point_in_box(p - offset, size, rd))
 			continue;
 
-		if (level == 0) {
-			result = vec3(1);
-			out_t = t;
-			return true;
-		}
+		stack_head++;
+		//stack_push(id, offset, level);
 
 		uint data = model_data[id];
 
-		uint offset = 1;
+		if (data == 0 || level == 0)
+			return vec3(t);
 
-		for (int i = 0; i < 8; i++) {
-			if (((data >> i) & 1) == 0)
-				continue;
+		uint node_id = id_from_point(p - offset, rd);
 
-			uint new_id = model_data[id + offset];
-			offset++;
+		if (get_bit(data, node_id) == 0) {
+			vec3 lp = (p - offset) / size;
+			lp = ray_step(lp, rd);
+			vec3 new_p = lp * size + offset;
+			t += length(new_p - p);
+			p = new_p;
 
-			stack_push(new_id, level - 1, pos + poses[i] * size);
+			//vec3 lp = (p - offset) / size;
+			//lp += rd * 0.025;
+			//vec3 new_p = lp * size + offset;
+			//t += length(new_p - p);
+			//p = new_p;
+
+			continue;
 		}
+
+		uint id_offset = 1;
+		for (uint j = 0; j < node_id; j++)
+			id_offset += get_bit(data, j);
+
+		stack_push(model_data[id + id_offset], offset + poses[node_id] * size, level - 1);
 	}
 
-	return false;
+	return vec3(0);
+
+	//while (true) {
+	//	if (!is_point_in_box(p, pow(2, model_level)/2))
+	//		break;
+	//
+	//	float size = pow(2.0, model_level) / 2;
+	//
+	//	uint id = 0;
+	//	vec3 lp = p / size;
+	//
+	//	for (uint i = model_level; i >= 0; i--) {
+	//		uint data = model_data[id];
+	//
+	//		if (data == 0 || i == 0)
+	//			return true;
+	//
+	//		uint node_id = id_from_point(lp, rd);
+	//
+	//		if (get_bit(data, node_id) == 0)
+	//			break;
+	//
+	//		uint id_offset = 1;
+	//		for (uint j = 0; j < node_id; j++)
+	//			id_offset += get_bit(data, j);
+	//
+	//		id = model_data[id + id_offset];
+	//		lp = (lp - poses[node_id]) * 2;
+	//	}
+	//
+	//	float new_t = 0.01;
+	//	p += rd * new_t;
+	//	t += new_t;
+	//}
+	//
+	//return false;
+
+	//if (p != round(p)) {
+	//	vec3 new_p = step(p, rd);
+	//	t += length(new_p - p);
+	//	p = new_p;
+	//}
+
+	//stack_push(0, vec3(0), model_level);
+	//
+	//while (stack_head > 0) {
+	//	uint id;
+	//	vec3 offset;
+	//	uint level;
+	//
+	//	stack_pop(id, offset, level);
+	//
+	//	float size = pow(2, level);
+	//
+	//	if (!is_point_in_box(p - offset, size))
+	//		continue;
+	//
+	//	stack_head++;
+	//
+	//	uint data = model_data[id];
+	//
+	//	if (data == 0 || level == 0)
+	//		return true;
+	//
+	//	uint node_id = id_from_point(p - offset, rd);
+	//
+	//	if (get_bit(data, node_id) == 0) {
+	//		float new_t = 0.1;
+	//		p += rd * new_t;
+	//		t += new_t;
+	//		//vec3 lp = (p - offset) / size;
+	//		//lp = step(lp, rd);
+	//		//vec3 new_p = lp * size + offset;
+	//		//t += length(new_p - p);
+	//		//p = new_p;
+	//		continue;
+	//	}
+	//
+	//	uint id_offset = 1;
+	//
+	//	for (int i = 0; i < node_id; i++)
+	//		id_offset += get_bit(data, i);
+	//
+	//	stack_push(model_data[id + id_offset], offset + poses[node_id] * size, level - 1);
+	//}
+	//
+	//return false;
 }
 
 
@@ -148,19 +276,15 @@ void main() {
 	vec2 uv = ivec2(gl_GlobalInvocationID.xy) / image_size * 2 - 1;
 	uv.x *= image_size.x / image_size.y;
 
-	vec3 ro = vec3(0,0,0) - vec3(0,0,16);
+	vec3 ro = vec3(0,0,0) - vec3(0,0,8);
 	vec3 rd = normalize(vec3(uv, 1));
 
-	//rd.yz *= rot(-0.5);
-	//rd.xz *= rot(0.5);
+	//rd.yz *= rot(-0.6);
+	//rd.xz *= rot(0.6);
 
-	float t;
-	bool hit = march(ro, rd, t);
-	vec3 color = vec3(0);
-
-	if (hit) {
-		color = vec3(t) / 20;
-	}
+	float t = 0;
+	vec3 color = ray_cast(ro, rd, t);
+	color /= 16;
 
 	imageStore(output_image, ivec2(gl_GlobalInvocationID.xy), vec4(color,1));
 }
